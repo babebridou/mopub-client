@@ -33,6 +33,8 @@
 package com.mopub.mobileads;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -48,6 +50,7 @@ import org.apache.http.params.HttpParams;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Paint;
 import android.location.Location;
 import android.location.LocationManager;
 import android.net.Uri;
@@ -91,8 +94,8 @@ public class AdView extends WebView {
         
         // another hack to prevent overlay flickering
         // when displayed on top of another webview that is hardware accelerated
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
-        
+        // just uncomment to disable hardware acceleration on honeycomb devices if needed
+        // preventHardwareAccelerationForHoneycomb();
         
         // Prevent user from scrolling the web view since it always adds a margin
         setOnTouchListener(new View.OnTouchListener() {
@@ -108,6 +111,26 @@ public class AdView extends WebView {
         setWebViewClient(new AdWebViewClient());
     }
 
+// if hardware acceleration is activated for webviews in manifest.xml
+// then as soon as there are multiple webviews displayed the screen starts flickering.
+// I suggest preventing hardware acceleration for ads for the time being as a quick hack
+// This method makes sure hardware acceleration is disabled on AdView and should be backward compatible 
+// (ie does nothing if hardware acceleration is unsupported or API level<11)
+    
+    private void preventHardwareAccelerationForHoneycomb(){
+    	try {
+			Method method = getClass().getMethod("setLayerType", int.class, Paint.class);
+			// View.LAYER_TYPE_SOFTWARE = 1 as of api level 11 & 12
+			int layerTypeSoftware = 1;
+			method.invoke(this, layerTypeSoftware, null);
+		} catch (SecurityException e) {
+		} catch (NoSuchMethodException e) {
+		} catch (IllegalArgumentException e) {
+		} catch (IllegalAccessException e) {
+		} catch (InvocationTargetException e) {
+		}
+    }
+    
     // Have to override loadUrl() in order to get the headers, which
     // MoPub uses to pass control information to the client.  Unfortunately
     // Android WebView doesn't let us get to the headers...
@@ -183,19 +206,19 @@ public class AdView extends WebView {
     private void handleAdFromNetwork(HackHttpResponse response) {
         mResponse = response.response;
         if (mResponse == null || mResponse.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
-            pageFailed("handleAdFromNetwork mResponse null ou mResponse KO");
+            pageFailed("handleAdFromNetwork mResponse null or mResponse KO");
             return;
         }
         HttpEntity entity = mResponse.getEntity();
         if (entity == null || entity.getContentLength() == 0) {
-            pageFailed("handleAdFromNetwork entity null ou entity length null");
+            pageFailed("handleAdFromNetwork entity null or entity length 0");
             return;
         }
         // Get the various header messages
         // If there is no ad, don't bother loading the data
         Header atHeader = mResponse.getFirstHeader("X-Adtype");
         if (atHeader == null || atHeader.getValue().equals("clear")) {
-            pageFailed("handleAdFromNetwork atHeader null ou atHeader clear");
+            pageFailed("handleAdFromNetwork atHeader null or atHeader value clear");
             return;
         }
 
@@ -411,13 +434,6 @@ public class AdView extends WebView {
         mMoPubView.adFailed();
     }
     
-//    private void pageFailed() {
-//        Log.i("MoPub", "pageFailed");
-//        mIsLoading = false;
-//        scheduleRefreshTimer();
-//        mMoPubView.adFailed();
-//    }
-
     private void pageClosed() {
         mMoPubView.adClosed();
     }
