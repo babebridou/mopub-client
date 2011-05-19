@@ -32,6 +32,19 @@
 
 package com.mopub.mobileads;
 
+import java.io.IOException;
+
+import org.apache.http.Header;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpStatus;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.params.BasicHttpParams;
+import org.apache.http.params.HttpConnectionParams;
+import org.apache.http.params.HttpParams;
+
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -48,22 +61,6 @@ import android.view.View;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.params.BasicHttpParams;
-import org.apache.http.params.HttpConnectionParams;
-import org.apache.http.params.HttpParams;
-
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 
 public class AdView extends WebView {
 
@@ -91,7 +88,12 @@ public class AdView extends WebView {
 
         getSettings().setJavaScriptEnabled(true);
         getSettings().setPluginsEnabled(true);
-
+        
+        // another hack to prevent overlay flickering
+        // when displayed on top of another webview that is hardware accelerated
+        setLayerType(LAYER_TYPE_SOFTWARE, null);
+        
+        
         // Prevent user from scrolling the web view since it always adds a margin
         setOnTouchListener(new View.OnTouchListener() {
             public boolean onTouch(View v, MotionEvent event) {
@@ -127,15 +129,26 @@ public class AdView extends WebView {
         new LoadUrlTask().execute(mUrl);
     }
 
-    private class LoadUrlTask extends AsyncTask<String, Void, HttpResponse> {
-        protected HttpResponse doInBackground(String... urls) {
-            return loadAdFromNetwork(urls[0]);
+    private class LoadUrlTask extends AsyncTask<String, Void, HackHttpResponse> {
+        protected HackHttpResponse doInBackground(String... urls) {
+        	try{
+            return new HackHttpResponse(loadAdFromNetwork(urls[0]));
+        	} catch(Exception e){
+        		e.printStackTrace();
+        		return null;
+        	}
         }
-        protected void onPostExecute(HttpResponse response) {
-            handleAdFromNetwork(response);
+        protected void onPostExecute(HackHttpResponse response) {
+        	if(response==null){
+        		pageFailed("Exception during async loadurl");
+        	}
+        	else {
+        		handleAdFromNetwork(response);
+        	}
         }
     }
 
+    
     private HttpResponse loadAdFromNetwork(String url) {
         HttpParams httpParameters = new BasicHttpParams();
 
@@ -159,32 +172,30 @@ public class AdView extends WebView {
         try {
             return httpclient.execute(httpget);
         } catch (ClientProtocolException e) {
-            pageFailed();
+            pageFailed("loadAdFromNetwork "+e.getMessage());
             return null;
         } catch (IOException e) {
-            pageFailed();
+            pageFailed("loadAdFromNetwork "+e.getMessage());
             return null;
         }
     }
 
-    private void handleAdFromNetwork(HttpResponse response) {
-        mResponse = response;
+    private void handleAdFromNetwork(HackHttpResponse response) {
+        mResponse = response.response;
         if (mResponse == null || mResponse.getStatusLine().getStatusCode() != HttpStatus.SC_OK) {
-            pageFailed();
+            pageFailed("handleAdFromNetwork mResponse null ou mResponse KO");
             return;
         }
-
         HttpEntity entity = mResponse.getEntity();
         if (entity == null || entity.getContentLength() == 0) {
-            pageFailed();
+            pageFailed("handleAdFromNetwork entity null ou entity length null");
             return;
         }
-
         // Get the various header messages
         // If there is no ad, don't bother loading the data
         Header atHeader = mResponse.getFirstHeader("X-Adtype");
         if (atHeader == null || atHeader.getValue().equals("clear")) {
-            pageFailed();
+            pageFailed("handleAdFromNetwork atHeader null ou atHeader clear");
             return;
         }
 
@@ -246,42 +257,42 @@ public class AdView extends WebView {
                 return;
             }
             else {
-                pageFailed();
+                pageFailed("handleAdFromNetwork npHeader null");
                 return;
             }
         }
 
         mResponseString = null;
-        StringBuilder sb = new StringBuilder();
-        InputStream is;
-        try {
-            is = entity.getContent();
-        } catch (IllegalStateException e1) {
-            pageFailed();
-            return;
-        } catch (IOException e1) {
-            pageFailed();
-            return;
-        }
-
-        BufferedReader reader = new BufferedReader(new InputStreamReader(is));
-
-        String line;
-        try {
-            while ((line = reader.readLine()) != null) {
-                sb.append(line + "\n");
-            }
-        } catch (IOException e) {
-            pageFailed();
-            return;
-        } finally {
-            try {
-                is.close();
-            } catch (IOException e) {
-                // Ignore since at this point we have the data we need
-            }
-        }
-        mResponseString = sb.toString();
+//        StringBuilder sb = new StringBuilder();
+//        InputStream is;
+//        try {
+//            is = entity.getContent();
+//        } catch (IllegalStateException e1) {
+//            pageFailed();
+//            return;
+//        } catch (IOException e1) {
+//            pageFailed();
+//            return;
+//        }
+//
+//        BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+//
+//        String line;
+//        try {
+//            while ((line = reader.readLine()) != null) {
+//                sb.append(line + "\n");
+//            }
+//        } catch (IOException e) {
+//            pageFailed();
+//            return;
+//        } finally {
+//            try {
+//                is.close();
+//            } catch (IOException e) {
+//                // Ignore since at this point we have the data we need
+//            }
+//        }
+        mResponseString = response.responseString; //sb.toString();
         loadDataWithBaseURL("http://"+MoPubView.HOST+"/",
                 mResponseString,"text/html","utf-8", null);
     }
@@ -349,7 +360,7 @@ public class AdView extends WebView {
             loadUrl(mFailUrl);
         }
         else {
-            pageFailed();
+            pageFailed("loadFailUrl mFailUrl null");
         }
     }
 
@@ -381,18 +392,31 @@ public class AdView extends WebView {
         FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER);
+                Gravity.CENTER
+                );
+        if(getAdHeight()>0){
+        	layoutParams.height = getAdHeight();
+        }
+        if(getAdWidth()>0){
+        	layoutParams.width = getAdWidth();
+        }
         mMoPubView.addView(this, layoutParams);
-
         mMoPubView.adLoaded();
     }
 
-    private void pageFailed() {
-        Log.i("MoPub", "pageFailed");
+    private void pageFailed(String reason) {
+        Log.i("MoPub", "pageFailed "+reason);
         mIsLoading = false;
         scheduleRefreshTimer();
         mMoPubView.adFailed();
     }
+    
+//    private void pageFailed() {
+//        Log.i("MoPub", "pageFailed");
+//        mIsLoading = false;
+//        scheduleRefreshTimer();
+//        mMoPubView.adFailed();
+//    }
 
     private void pageClosed() {
         mMoPubView.adClosed();
