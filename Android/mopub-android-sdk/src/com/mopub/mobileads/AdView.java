@@ -95,7 +95,7 @@ public class AdView extends WebView {
         // another hack to prevent overlay flickering
         // when displayed on top of another webview that is hardware accelerated
         // just uncomment to disable hardware acceleration on honeycomb devices if needed
-        // preventHardwareAccelerationForHoneycomb();
+         preventHardwareAccelerationForHoneycomb();
         
         // Prevent user from scrolling the web view since it always adds a margin
         setOnTouchListener(new View.OnTouchListener() {
